@@ -1,0 +1,5 @@
+# Test division guard
+ rakha dividend = 10
+ rakha divisor = 0
+ rakha result = dividend / divisor
+ bhana "Result:" result

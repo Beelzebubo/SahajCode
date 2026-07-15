@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sahajcode"
+version = "2.0"
+description = "SahajCode – Nepali Programming Language Transpiler"
+authors = [{name = "Your Name", email = "you@example.com"}]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+sahaj = "sahajcode.src.cli:main"

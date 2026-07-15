@@ -1,0 +1,6 @@
+# Simple while loop test
+rakha x = 3
+jaba x > 0 samma
+    bhana x
+    x = x - 1
+antya

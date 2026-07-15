@@ -1,0 +1,6 @@
+# While loop with division guard
+rakha x = 10
+jaba x > 0 samma
+    bhana x
+    x = x - 1
+antya

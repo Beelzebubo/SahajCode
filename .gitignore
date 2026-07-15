@@ -1,0 +1,19 @@
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Generated artifacts
+*.c
+a.out
+*.o
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

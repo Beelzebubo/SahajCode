@@ -1,0 +1,10 @@
+# Variables and I/O
+rakha x = 10
+rakha nam = "Sunita"
+
+bhana "Namaste"
+bhana nam
+bhana x
+
+suna age
+bhana age

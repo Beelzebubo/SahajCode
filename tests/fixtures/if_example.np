@@ -1,0 +1,7 @@
+# If-else example
+rakha x = 15
+yedi x > 10 bhane
+    bhana "X is big"
+natra
+    bhana "X is small"
+antya

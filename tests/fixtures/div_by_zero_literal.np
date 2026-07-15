@@ -1,0 +1,4 @@
+# Test division by zero literal
+rakha x = 10
+rakha y = x / 0
+bhana y
