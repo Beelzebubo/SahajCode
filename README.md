@@ -380,4 +380,4 @@ Based on the PRD phases:
 
 ## License
 
-See the repository for license details.
+MIT
