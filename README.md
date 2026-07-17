@@ -48,7 +48,7 @@ pip install .
 You can run programs in three equivalent ways:
 
 ```bash
-python3 -m src.cli run hello.np      # recommended
+python3 -m sahajcode.cli run hello.np      # recommended
 python3 sahajcode.py run hello.np    # top-level wrapper
 sahaj run hello.np                   # if installed via `pip install .`
 ```
@@ -67,7 +67,7 @@ bhana "Namaste Sathi"
 Run it:
 
 ```bash
-python3 -m src.cli run hello.np
+python3 -m sahajcode.cli run hello.np
 # → Namaste Sathi
 ```
 
@@ -260,12 +260,12 @@ Example output:
 ## CLI Reference
 
 ```
-python3 -m src.cli <command> [options]
+python3 -m sahajcode.cli <command> [options]
 ```
 
 ### `run` — transpile, compile, and execute
 ```bash
-python3 -m src.cli run program.np
+python3 -m sahajcode.cli run program.np
 ```
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
@@ -275,9 +275,9 @@ python3 -m src.cli run program.np
 
 ### `build` — transpile to C only
 ```bash
-python3 -m src.cli build program.np          # writes program.c
-python3 -m src.cli build program.np --show   # also print the C to stdout
-python3 -m src.cli build program.np -o out.c # custom output path
+python3 -m sahajcode.cli build program.np          # writes program.c
+python3 -m sahajcode.cli build program.np --show   # also print the C to stdout
+python3 -m sahajcode.cli build program.np -o out.c # custom output path
 ```
 | Option | Short | Description |
 |--------|-------|-------------|
@@ -287,12 +287,12 @@ python3 -m src.cli build program.np -o out.c # custom output path
 
 ### `init` — scaffold a project
 ```bash
-python3 -m src.cli init myproject
+python3 -m sahajcode.cli init myproject
 ```
 
 ### Global
 ```bash
-python3 -m src.cli --version   # prints version (SahajCode v2.0)
+python3 -m sahajcode.cli --version   # prints version (SahajCode v2.0)
 ```
 
 ---

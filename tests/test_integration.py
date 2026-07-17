@@ -8,7 +8,7 @@ from pathlib import Path
 def run_cli(args):
     """Run the sahaj CLI as a subprocess and return exit code and output."""
     # Ensure the module can be executed via python -m
-    result = subprocess.run([sys.executable, '-m', 'src.cli'] + args,
+    result = subprocess.run([sys.executable, '-m', 'sahajcode.cli'] + args,
                             capture_output=True, text=True)
     return result.returncode, result.stdout + result.stderr
 

@@ -116,6 +116,9 @@ def analyze_stmt(stmt, symtab: SymbolTable, errors: List) -> None:
         if err:
             errors.append((stmt.line, err, stmt.name))
     
+    elif stmt.node_type == NodeType.INPUT:
+        symtab.register_input(stmt.name, stmt.line)
+    
     elif stmt.node_type == NodeType.IF:
         infer_node_type(stmt.condition, symtab)
         for s in stmt.then_branch:
@@ -137,41 +140,8 @@ def analyze_stmt(stmt, symtab: SymbolTable, errors: List) -> None:
 
 def analyze_types(ast) -> Tuple[SymbolTable, List]:
     """Analyze AST and build symbol table with type checking."""
-    from .ast_nodes import NodeType
     symtab = SymbolTable()
     errors: List = []
-    
     for stmt in ast.statements:
-        if stmt.node_type == NodeType.VAR_DECL:
-            vartype = infer_node_type(stmt.value, symtab)
-            err = symtab.declare(stmt.name, vartype, stmt.line)
-            if err:
-                errors.append((stmt.line, err, stmt.name))
-        
-        elif stmt.node_type == NodeType.ASSIGNMENT:
-            err = symtab.ensure_declared(stmt.name, stmt.line)
-            if err:
-                errors.append((stmt.line, err, stmt.name))
-        
-        elif stmt.node_type == NodeType.INPUT:
-            symtab.register_input(stmt.name, stmt.line)
-        
-        elif stmt.node_type == NodeType.IF:
-            infer_node_type(stmt.condition, symtab)
-            for s in stmt.then_branch:
-                analyze_stmt(s, symtab, errors)
-            for s in stmt.else_branch:
-                analyze_stmt(s, symtab, errors)
-        
-        elif stmt.node_type == NodeType.WHILE:
-            infer_node_type(stmt.condition, symtab)
-            for s in stmt.body:
-                analyze_stmt(s, symtab, errors)
-        
-        elif stmt.node_type == NodeType.FOR:
-            infer_node_type(stmt.start, symtab)
-            infer_node_type(stmt.end, symtab)
-            for s in stmt.body:
-                analyze_stmt(s, symtab, errors)
-    
+        analyze_stmt(stmt, symtab, errors)
     return symtab, errors

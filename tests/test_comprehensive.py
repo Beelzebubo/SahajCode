@@ -5,16 +5,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.lexer import tokenize, TokenType
-from src.parser import parse, Parser
-from src.symbol_table import analyze_types
-from src.codegen import generate_c
-from src.ast_nodes import NodeType
+from sahajcode.lexer import tokenize, TokenType
+from sahajcode.parser import parse, Parser
+from sahajcode.symbol_table import analyze_types
+from sahajcode.codegen import generate_c
+from sahajcode.ast_nodes import NodeType
 
 
 def run_cli(args):
     """Run the sahaj CLI as a subprocess and return (rc, output)."""
-    result = subprocess.run([sys.executable, '-m', 'src.cli'] + args,
+    result = subprocess.run([sys.executable, '-m', 'sahajcode.cli'] + args,
                             capture_output=True, text=True)
     return result.returncode, result.stdout + result.stderr
 

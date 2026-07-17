@@ -1,8 +1,8 @@
 import pytest
-from src.lexer import tokenize
-from src.parser import parse
-from src.symbol_table import analyze_types
-from src.codegen import generate_c
+from sahajcode.lexer import tokenize
+from sahajcode.parser import parse
+from sahajcode.symbol_table import analyze_types
+from sahajcode.codegen import generate_c
 
 
 def test_generate_c_simple():

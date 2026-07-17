@@ -1,7 +1,7 @@
 import pytest
-from src.lexer import tokenize
-from src.parser import parse
-from src.ast_nodes import NodeType
+from sahajcode.lexer import tokenize
+from sahajcode.parser import parse
+from sahajcode.ast_nodes import NodeType
 
 def test_parse_var_decl_and_print():
     source = 'rakha x = 5\nbhana x\n'

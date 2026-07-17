@@ -84,11 +84,42 @@ def main():
         return 6  # No input (system error) - per PRD
 
 
+def _transpile(args, file_path, source):
+    """Shared lex → parse → analyze pipeline. Returns (c_code, None) or (None, exit_code)."""
+    error_reporter = ErrorReporter()
+    
+    from .lexer import tokenize
+    tokens = tokenize(source)
+    report_lexical_errors(tokens, error_reporter, source)
+    if error_reporter.has_errors():
+        print(error_reporter.format_report())
+        return None, 1
+    
+    from .parser import Parser
+    parser = Parser(tokens)
+    ast = parser.parse()
+    if parser.errors:
+        for line, nepali_msg, english_msg, token, suggestion in parser.errors:
+            error_reporter.add_error(nepali_msg, english_msg, token.line, token.value, suggestion)
+        print(error_reporter.format_report())
+        return None, 2
+    
+    from .symbol_table import analyze_types
+    symtab, errors = analyze_types(ast)
+    if errors:
+        for line, msg, var in errors:
+            error_reporter.add_error(msg, msg, line, var)
+        print(error_reporter.format_report())
+        return None, 3
+    
+    from .codegen import generate_c
+    return generate_c(ast, symtab, source), 0
+
+
 def cmd_run(args):
     """Execute: sahaj run <file.np>"""
-    file_path = Path(args.file)
+    file_path = Path(args.file).resolve()
     
-    # Validate file exists
     if not file_path.exists():
         print(f"[ERROR] File not found: {file_path}")
         return 7
@@ -96,7 +127,6 @@ def cmd_run(args):
     if args.verbose:
         print(f"[1/4] Reading {file_path}...")
     
-    # Read source
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             source = f.read()
@@ -104,50 +134,12 @@ def cmd_run(args):
         print(f"[ERROR] Could not read file: {e}")
         return 6
     
-    # Tokenize
     if args.verbose:
-        print("[2/4] Tokenizing...")
+        print("[2/4] Transpiling...")
     
-    from .lexer import tokenize
-    tokens = tokenize(source)
-    # Check for lexical errors
-    error_reporter = ErrorReporter()
-    report_lexical_errors(tokens, error_reporter, source)
-    if error_reporter.has_errors():
-        print(error_reporter.format_report())
-        return 1
-    
-    # Parse
-    if args.verbose:
-        print("[3/4] Parsing...")
-    
-    from .parser import Parser
-    parser = Parser(tokens)
-    ast = parser.parse()
-    
-    # Check for syntax errors
-    if parser.errors:
-        for line, nepali_msg, english_msg, token, suggestion in parser.errors:
-            error_reporter.add_syntax_error(nepali_msg, english_msg, token, suggestion=suggestion)
-        print(error_reporter.format_report())
-        return 2  # Syntax error
-    
-    # Symbol table analysis
-    from .symbol_table import analyze_types
-    symtab, errors = analyze_types(ast)
-    
-    if errors:
-        for line, msg, var in errors:
-            error_reporter.add_semantic_error(msg, msg, var, line)
-        print(error_reporter.format_report())
-        return 3  # Semantic error
-    
-    # Generate C
-    if args.verbose:
-        print("[4/4] Generating C code...")
-    
-    from .codegen import generate_c
-    c_code = generate_c(ast, symtab, source)
+    c_code, code = _transpile(args, file_path, source)
+    if code:
+        return code
     
     # Write C to temp file
     c_path = file_path.with_suffix('.c')
@@ -203,7 +195,7 @@ def cmd_run(args):
 
 def cmd_build(args):
     """Execute: sahaj build <file.np>"""
-    file_path = Path(args.file)
+    file_path = Path(args.file).resolve()
     
     if not file_path.exists():
         print(f"[ERROR] File not found: {file_path}")
@@ -216,44 +208,15 @@ def cmd_build(args):
         print(f"[ERROR] Could not read file: {e}")
         return 6
     
-    # Tokenize and parse
-    from .lexer import tokenize
-    from .parser import Parser
-    tokens = tokenize(source)
-    # Lexical error detection
-    error_reporter = ErrorReporter()
-    report_lexical_errors(tokens, error_reporter, source)
-    if error_reporter.has_errors():
-        print(error_reporter.format_report())
-        return 1
-    parser = Parser(tokens)
-    ast = parser.parse()
-    # Syntax error detection
-    if parser.errors:
-        for line, nepali_msg, english_msg, token, suggestion in parser.errors:
-            error_reporter.add_syntax_error(nepali_msg, english_msg, token, suggestion=suggestion)
-        print(error_reporter.format_report())
-        return 2  # Syntax error
-    
-    from .symbol_table import analyze_types
-    symtab, errors = analyze_types(ast)
-    
-    if errors:
-        for line, msg, var in errors:
-            error_reporter.add_semantic_error(msg, msg, var, line)
-        print(error_reporter.format_report())
-        return 3
-    
-    # Generate C
-    from .codegen import generate_c
-    c_code = generate_c(ast, symtab, source)
+    c_code, code = _transpile(args, file_path, source)
+    if code:
+        return code
     
     if args.show:
         print(c_code)
         return 0
     
-    # Write to file
-    output_path = Path(args.output) if args.output else file_path.with_suffix('.c')
+    output_path = Path(args.output).resolve() if args.output else file_path.with_suffix('.c')
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(c_code)
     

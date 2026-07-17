@@ -4,7 +4,6 @@ Generates bilingual (Nepali/English) error messages with source-line mapping.
 """
 
 from typing import List, Tuple, Optional
-from .lexer import Token
 
 
 class ErrorReporter:
@@ -14,41 +13,11 @@ class ErrorReporter:
         self.errors: List[Tuple[str, str, int, str, str]] = []  # (nepali, english, line, source, suggestion)
     
     def add_error(self, nepali: str, english: str, line: int, source: str = "", suggestion: str = "", caret: Optional[str] = None):
-        """Add an error to the report. `caret` is an optional pointer string."""
+        """Add an error to the report. `caret` is an optional pointer string.
+        `nepali`/`english` are used as-is; pass already-prefixed text if desired.
+        `source` is the offending line text and `caret` an optional pointer.
+        """
         self.errors.append((nepali, english, line, source, suggestion, caret))
-    
-    def add_lexical_error(self, msg_nepali: str, msg_english: str, token: Token, suggestion: str = "", caret: Optional[str] = None):
-        """Add a lexical error."""
-        self.errors.append((
-            f"[ERROR] Line {token.line}: {msg_nepali}",
-            f"[ENGLISH] Line {token.line}: {msg_english}",
-            token.line,
-            token.value,
-            suggestion,
-            caret
-        ))
-    
-    def add_syntax_error(self, msg_nepali: str, msg_english: str, token: Token, source: str = "", suggestion: str = "", caret: Optional[str] = None):
-        """Add a syntax error."""
-        self.errors.append((
-            f"[ERROR] Line {token.line}: {msg_nepali}",
-            f"[ENGLISH] Line {token.line}: {msg_english}",
-            token.line,
-            source or token.value,
-            suggestion,
-            caret
-        ))
-    
-    def add_semantic_error(self, msg_nepali: str, msg_english: str, var_name: str, line: int, suggestion: str = "", caret: Optional[str] = None):
-        """Add a semantic error."""
-        self.errors.append((
-            f"[ERROR] Line {line}: {msg_nepali}",
-            f"[ENGLISH] Line {line}: {msg_english}",
-            line,
-            var_name,
-            suggestion,
-            caret
-        ))
     
     def has_errors(self) -> bool:
         return len(self.errors) > 0

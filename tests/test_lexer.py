@@ -1,5 +1,5 @@
 import pytest
-from src.lexer import tokenize, TokenType
+from sahajcode.lexer import tokenize, TokenType
 
 def test_simple_tokens():
     source = 'rakha x = 10\nbhana x\n'
