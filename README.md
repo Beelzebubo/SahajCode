@@ -312,7 +312,6 @@ SahajCode/
 ├── tests/                # pytest suite (lexer, parser, codegen, CLI)
 ├── docs/                 # Guides & lesson plans (Nepali + English)
 ├── examples/             # Example programs
-├── SahajCode_PRD_v2.0.md # Product Requirements Document
 ├── pyproject.toml        # Packaging metadata
 └── README.md
 ```
@@ -381,4 +380,4 @@ Based on the PRD phases:
 
 ## License
 
-See the repository for license details.
+MIT
