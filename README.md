@@ -106,6 +106,8 @@ int main() {
 | `dekhi`   | देखि     | from | `for` start bound |
 | `thik`    | ठीक     | true | `1` |
 | `galat`   | गलत     | false | `0` |
+| `garu`    | गर्नु    | do / make | `function` definition |
+| `firta`   | फर्क    | return | `return` from a function |
 
 Both Romanized and Devanagari forms are accepted interchangeably.
 
@@ -194,6 +196,49 @@ antya
 ```
 
 > Note: per the MVP grammar the `dekhi` bounds must be **integer literals**.
+
+### Functions
+
+Define reusable functions with `garu` (गर्नु) and return a value with `firta` (फर्क):
+
+```sahajcode
+garu add(a, b)
+    rakha x = a + b
+    firta x
+antya
+
+rakha r = add(3, 4)
+bhana r          # prints 7
+```
+
+- `garu name(p1, p2, ...) ... antya` declares a function; `antya` closes its body.
+- `firta <expr>` returns a value from the function.
+- Call a function as an expression (`rakha r = add(1, 2)`) or as a statement (`add(1, 2)`).
+- Parameter and return types are inferred: a function that returns a string becomes
+  `char*`, otherwise it returns `int`. Strings are passed as `char[]`.
+
+### Arrays
+
+Arrays of integers or strings are declared with `rakha` and indexed with `[ ]`:
+
+```sahajcode
+rakha nums = [10, 20, 30, 40]
+
+rakha sum = 0
+rakha i = 0
+jaba i < 4 samma
+    sum = sum + nums[i]
+    i = i + 1
+antya
+
+bhana sum          # prints 100
+
+nums[0] = 99       # assign to an element
+bhana nums[0]      # prints 99
+```
+
+- Array element type is inferred from the elements (`int` or `string`).
+- Indices are zero-based. Array declarations and indexing work inside functions too.
 
 ### Strings
 

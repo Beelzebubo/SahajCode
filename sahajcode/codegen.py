@@ -7,9 +7,10 @@ All declarations are inside main(), all executable statements are inside main().
 from typing import List, Optional
 from .ast_nodes import (
     ASTNode, Program, VarDecl, Assignment, Print, Input,
-    If, While, For, BinaryOp, UnaryOp, Number, String, Identifier, Comment, NodeType
+    If, While, For, BinaryOp, UnaryOp, Number, String, Identifier, Comment, NodeType,
+    FunctionDef, Return, Call, ArrayLiteral, IndexExpr
 )
-from .symbol_table import SymbolTable, VarType
+from .symbol_table import SymbolTable, VarType, FunctionInfo
 
 
 class CodeGenerator:
@@ -28,15 +29,22 @@ class CodeGenerator:
             "#include <stdio.h>",
             "#include <string.h>",
             "",
-            "int main() {"
         ]
+        
+        # Emit function definitions above main
+        func_defs = [s for s in ast.statements if s.node_type == NodeType.FUNCTION_DEF]
+        main_stmts = [s for s in ast.statements if s.node_type != NodeType.FUNCTION_DEF]
+        
+        for fdef in func_defs:
+            self._generate_function(fdef)
+            self.c_lines.append('')
+        
+        # main()
+        self.c_lines.append("int main() {")
         self.indent = 1
         
-        # Declare all variables at the start of main
         self._declare_variables()
-        
-        # Generate statements
-        self._generate_statement_list(ast.statements)
+        self._generate_statement_list(main_stmts)
         
         self.indent = 0
         self.c_lines.append("    return 0;")
@@ -44,22 +52,181 @@ class CodeGenerator:
         
         return '\n'.join(self.c_lines)
     
+    # ---- Function generation ----
+    def _infer_param_types(self, fdef: FunctionDef) -> List[VarType]:
+        """Infer each parameter's type by scanning the function body for string usage."""
+        types = []
+        for p in fdef.params:
+            if self._param_used_as_string(p, fdef.body):
+                types.append(VarType.STRING)
+            else:
+                types.append(VarType.INT)
+        return types
+    
+    def _param_used_as_string(self, param: str, nodes) -> bool:
+        """Heuristic: is `param` used in a string context anywhere in the body?"""
+        for n in nodes:
+            if n is None or n.node_type == NodeType.FUNCTION_DEF:
+                continue
+            if n.node_type == NodeType.BINARY_OP and n.op == '+':
+                if self._ident_is(n.left, param) and self._is_string_like(n.right):
+                    return True
+                if self._ident_is(n.right, param) and self._is_string_like(n.left):
+                    return True
+                if self._param_used_as_string(param, [n.left, n.right]):
+                    return True
+            if n.node_type == NodeType.PRINT and self._expr_uses_string_param(param, n.expr):
+                return True
+            if n.node_type in (NodeType.VAR_DECL, NodeType.ASSIGNMENT):
+                if self._expr_uses_string_param(param, getattr(n, 'value', None)):
+                    return True
+            if n.node_type == NodeType.IF and self._expr_uses_string_param(param, n.condition):
+                return True
+            if n.node_type == NodeType.WHILE and self._expr_uses_string_param(param, n.condition):
+                return True
+            for child in ('then_branch', 'else_branch', 'body'):
+                child_nodes = getattr(n, child, None)
+                if isinstance(child_nodes, list) and self._param_used_as_string(param, child_nodes):
+                    return True
+        return False
+    
+    def _expr_uses_string_param(self, param: str, expr) -> bool:
+        """True if param appears as an operand of a '+' whose other side is string-like."""
+        if expr is None:
+            return False
+        if expr.node_type == NodeType.BINARY_OP and expr.op == '+':
+            if self._ident_is(expr.left, param) and self._is_string_like(expr.right):
+                return True
+            if self._ident_is(expr.right, param) and self._is_string_like(expr.left):
+                return True
+            return self._expr_uses_string_param(param, expr.left) or self._expr_uses_string_param(param, expr.right)
+        if expr.node_type == NodeType.CALL:
+            return any(self._expr_uses_string_param(param, a) for a in expr.args)
+        return False
+
+    
+    def _ident_is(self, node, name: str) -> bool:
+        return node is not None and node.node_type == NodeType.IDENTIFIER and node.name == name
+    
+    def _generate_function(self, fdef: FunctionDef):
+        """Emit a C function definition."""
+        ret_type = self._infer_return_type(fdef)
+        param_types = self._infer_param_types(fdef)
+        # Record inferred return type so call sites can infer it too
+        fn = self.symbol_table.lookup_function(fdef.name)
+        if fn is not None:
+            fn.return_type = ret_type
+        # Build C signature
+        c_params = []
+        for p, pt in zip(fdef.params, param_types):
+            if pt == VarType.STRING:
+                c_params.append(f'char {p}[]')
+            else:
+                c_params.append(f'int {p}')
+        sig = ', '.join(c_params) if c_params else 'void'
+        ret_c = 'char*' if ret_type == VarType.STRING else 'int'
+        
+        self.c_lines.append(f'{ret_c} {fdef.name}({sig}) {{')
+        self.indent = 1
+        
+        # Declare local variables (rakha inside function) excluding params
+        locals_seen = set(fdef.params)
+        local_decls = []
+        self._collect_function_locals(fdef.body, locals_seen, local_decls)
+        for decl in local_decls:
+            if decl[1] == VarType.STRING:
+                self.c_lines.append(f'{self._indent()}char {decl[0]}[256] = {{0}};')
+            else:
+                self.c_lines.append(f'{self._indent()}int {decl[0]} = 0;')
+        if local_decls:
+            self.c_lines.append('')
+        
+        # For string returns, provide a static buffer
+        if ret_type == VarType.STRING:
+            self.c_lines.append(f'{self._indent()}static char _ret[256];')
+            self.c_lines.append('')
+        
+        # Emit body
+        self._generate_statement_list(fdef.body)
+        
+        self.indent = 0
+        # Ensure a return for non-void fallback (int 0)
+        self.c_lines.append('}')
+    
+    def _collect_function_locals(self, nodes, seen: set, out: list):
+        for n in nodes:
+            if n is None:
+                continue
+            if n.node_type == NodeType.VAR_DECL:
+                if n.name not in seen:
+                    seen.add(n.name)
+                    vtype = self._infer_node_type_c(n.value)
+                    out.append((n.name, vtype))
+            elif n.node_type == NodeType.FUNCTION_DEF:
+                continue
+            elif n.node_type in (NodeType.IF,):
+                self._collect_function_locals(n.then_branch, seen, out)
+                self._collect_function_locals(n.else_branch, seen, out)
+            elif n.node_type in (NodeType.WHILE, NodeType.FOR):
+                self._collect_function_locals(n.body, seen, out)
+    
+    def _infer_return_type(self, fdef: FunctionDef) -> VarType:
+        """Infer return type from the first firta expression."""
+        for n in fdef.body:
+            if n is not None and n.node_type == NodeType.RETURN and n.expr is not None:
+                return self._infer_node_type_c(n.expr)
+        return VarType.INT
+    
+    def _infer_node_type_c(self, expr) -> VarType:
+        """Lightweight type inference used for local var / return declarations."""
+        if expr is None:
+            return VarType.INT
+        if expr.node_type == NodeType.STRING:
+            return VarType.STRING
+        if expr.node_type == NodeType.ARRAY_LITERAL:
+            return VarType.STRING if expr.elem_type == 'string' else VarType.INT
+        if expr.node_type == NodeType.NUMBER:
+            return VarType.INT
+        if expr.node_type == NodeType.BINARY_OP and expr.op == '+':
+            if self._is_string_like(expr.left) or self._is_string_like(expr.right):
+                return VarType.STRING
+        if expr.node_type == NodeType.IDENTIFIER:
+            sym = self.symbol_table.lookup(expr.name)
+            if sym:
+                return sym.type
+            return VarType.INT
+        if expr.node_type == NodeType.INDEX:
+            sym = self.symbol_table.lookup(expr.array)
+            if sym and sym.type == VarType.STRING:
+                return VarType.STRING
+            return VarType.INT
+        if expr.node_type == NodeType.CALL:
+            info = self.symbol_table.lookup_function(expr.name)
+            if info:
+                return info.return_type
+            return VarType.INT
+        return VarType.INT
+    
     def _declare_variables(self):
-        """Declare all variables at the beginning of main()."""
-        # Declare variables from VAR_DECL statements
+        """Declare all top-level variables at the beginning of main().
+
+        Variables initialized with an array literal are declared (with their
+        initializer) by _generate_var_decl, so they are skipped here to avoid a
+        redeclaration.
+        """
         for name, symbol in self.symbol_table.symbols.items():
+            # Arrays with initializers are declared in _generate_var_decl.
+            if symbol.is_array:
+                continue
             if symbol.type == VarType.STRING:
                 self.c_lines.append(f'{self._indent()}char {name}[256] = {{0}};')
             else:
                 self.c_lines.append(f'{self._indent()}int {name} = 0;')
         
-        # Declare variables from INPUT statements (suna) that weren't explicitly declared
         for name, line in self.symbol_table.inputs_pending:
             if name not in self.symbol_table.symbols:
-                # Input variables default to int type
                 self.c_lines.append(f'{self._indent()}int {name} = 0;')
         
-        # Add blank line after declarations if we have any
         if self.symbol_table.symbols or self.symbol_table.inputs_pending:
             self.c_lines.append('')
     
@@ -79,6 +246,8 @@ class CodeGenerator:
     
     def _generate_statement(self, stmt: ASTNode):
         """Generate code for a single statement."""
+        if stmt is None:
+            return
         if getattr(stmt, 'line', 0):
             self.c_lines.append(self._line_comment(stmt.line))
         if stmt.node_type == NodeType.VAR_DECL:
@@ -95,56 +264,87 @@ class CodeGenerator:
             self._generate_while(stmt)
         elif stmt.node_type == NodeType.FOR:
             self._generate_for(stmt)
+        elif stmt.node_type == NodeType.RETURN:
+            self._generate_return(stmt)
+        elif stmt.node_type == NodeType.CALL:
+            self.c_lines.append(f'{self._indent()}{self._gen_expr(stmt)};')
         elif stmt.node_type == NodeType.COMMENT:
-            # Comments are preserved as C comments
             self.c_lines.append(f'{self._indent()}/* {stmt.text} */')
+        # FUNCTION_DEF handled separately (emitted above main)
+    
+    def _generate_return(self, stmt: Return):
+        if stmt.expr is None:
+            self.c_lines.append(f'{self._indent()}return;')
+            return
+        ret_type = self._infer_node_type_c(stmt.expr)
+        if ret_type == VarType.STRING:
+            val = self._gen_expr(stmt.expr)
+            self.c_lines.append(f'{self._indent()}strcpy(_ret, {val});')
+            self.c_lines.append(f'{self._indent()}return _ret;')
+        else:
+            self.c_lines.append(f'{self._indent()}return {self._gen_expr(stmt.expr)};')
     
     def _generate_var_decl(self, stmt: VarDecl):
         """Generate variable declaration with initialization."""
         if stmt.value is not None:
-            # String concatenation requires strcpy/strcat, not '='
+            if stmt.value.node_type == NodeType.ARRAY_LITERAL:
+                self._generate_array_decl(stmt.name, stmt.value)
+                return
             if self._is_string_concat(stmt.value):
                 self._generate_string_concat(stmt.name, stmt.value)
                 return
-            
-            # Runtime division-by-zero guard (PRD E006)
             self._emit_division_guards(stmt.value)
-            
             expr = self._gen_expr(stmt.value)
-            # For strings, we need to use strcpy
             if isinstance(stmt.value, String):
                 self.c_lines.append(f'{self._indent()}strcpy({stmt.name}, {expr});')
             else:
                 self.c_lines.append(f'{self._indent()}{stmt.name} = {expr};')
-        # If no initialization, variable already declared with default value
+    
+    def _generate_array_decl(self, name: str, arr: ArrayLiteral):
+        parts = [self._gen_expr(e) for e in arr.elements]
+        if arr.elem_type == 'string':
+            self.c_lines.append(f'{self._indent()}char {name}[{arr.size}][256] = {{')
+            for i, p in enumerate(parts):
+                comma = ',' if i < len(parts) - 1 else ''
+                self.c_lines.append(f'{self._indent()}    {p}{comma}')
+            self.c_lines.append(f'{self._indent()}}};')
+        else:
+            self.c_lines.append(f'{self._indent()}int {name}[{arr.size}] = {{{", ".join(parts)}}};')
     
     def _generate_assignment(self, stmt: Assignment):
-        """Generate assignment statement."""
-        # String concatenation requires strcpy/strcat, not '='
+        """Generate assignment statement (identifier or array index target)."""
+        target = getattr(stmt, 'target', None)
+        if target is not None and target.node_type == NodeType.INDEX:
+            self._generate_index_assignment(target, stmt.value)
+            return
         if self._is_string_concat(stmt.value):
             self._generate_string_concat(stmt.name, stmt.value)
             return
-        
-        # Runtime division-by-zero guard (PRD E006)
         self._emit_division_guards(stmt.value)
-        
         expr = self._gen_expr(stmt.value)
-        # For strings, use strcpy
         if isinstance(stmt.value, String):
             self.c_lines.append(f'{self._indent()}strcpy({stmt.name}, {expr});')
         else:
             self.c_lines.append(f'{self._indent()}{stmt.name} = {expr};')
+    
+    def _generate_index_assignment(self, target: IndexExpr, value):
+        arr = target.array
+        idx = self._gen_expr(target.index)
+        sym = self.symbol_table.lookup(arr)
+        is_string = (sym and sym.type == VarType.STRING) or target.is_string
+        if is_string:
+            self._emit_division_guards(value)
+            self.c_lines.append(f'{self._indent()}strcpy({arr}[{idx}], {self._gen_expr(value)});')
+        else:
+            self._emit_division_guards(value)
+            self.c_lines.append(f'{self._indent()}{arr}[{idx}] = {self._gen_expr(value)};')
     
     def _generate_print(self, stmt: Print):
         """Generate print statement."""
         expr = stmt.expr
         if expr is None:
             return
-        
-        # Runtime division-by-zero guard (PRD E006)
         self._emit_division_guards(expr)
-        
-        # String concatenation: build into a temp buffer, then print
         if self._is_string_concat(expr):
             buf = f'_sc_print_{self._tmp_counter}'
             self._tmp_counter += 1
@@ -152,10 +352,8 @@ class CodeGenerator:
             self._generate_string_concat(buf, expr)
             self.c_lines.append(f'{self._indent()}printf("%s\\n", {buf});')
             return
-        
         expr_type = self._infer_expr_type(expr)
         expr_str = self._gen_expr(expr)
-        
         if expr_type == VarType.STRING:
             self.c_lines.append(f'{self._indent()}printf("%s\\n", {expr_str});')
         else:
@@ -163,11 +361,10 @@ class CodeGenerator:
     
     def _generate_input(self, stmt: Input):
         """Generate input statement."""
-        # Check if variable is string or int
         var_type = self.symbol_table.lookup(stmt.name)
         if var_type and var_type.type == VarType.STRING:
             self.c_lines.append(f'{self._indent()}fgets({stmt.name}, sizeof({stmt.name}), stdin);')
-            self.c_lines.append(f'{self._indent()}{stmt.name}[strcspn({stmt.name}, "\\n")] = 0;')  # Remove newline
+            self.c_lines.append(f'{self._indent()}{stmt.name}[strcspn({stmt.name}, "\\n")] = 0;')
         else:
             self.c_lines.append(f'{self._indent()}scanf("%d", &{stmt.name});')
     
@@ -212,12 +409,22 @@ class CodeGenerator:
     
     def _gen_expr(self, expr: ASTNode) -> str:
         """Generate expression code."""
+        if expr is None:
+            return ''
         if expr.node_type == NodeType.NUMBER:
             return str(expr.value)
         elif expr.node_type == NodeType.STRING:
             return f'"{expr.value}"'
         elif expr.node_type == NodeType.IDENTIFIER:
             return expr.name
+        elif expr.node_type == NodeType.INDEX:
+            return f'{expr.array}[{self._gen_expr(expr.index)}]'
+        elif expr.node_type == NodeType.CALL:
+            args = ', '.join(self._gen_expr(a) for a in expr.args)
+            return f'{expr.name}({args})'
+        elif expr.node_type == NodeType.ARRAY_LITERAL:
+            inner = ', '.join(self._gen_expr(e) for e in expr.elements)
+            return f'{{{inner}}}'
         elif expr.node_type == NodeType.BINARY_OP:
             return self._gen_binary_op(expr)
         elif expr.node_type == NodeType.UNARY_OP:
@@ -252,6 +459,10 @@ class CodeGenerator:
         elif expr.node_type == NodeType.BINARY_OP and expr.op == '+':
             if self._is_string_like(expr.left) or self._is_string_like(expr.right):
                 return VarType.STRING
+        elif expr.node_type == NodeType.CALL:
+            fn = self.symbol_table.lookup_function(expr.name)
+            if fn is not None:
+                return fn.return_type
         return VarType.INT
     
     def _is_string_like(self, expr: ASTNode) -> bool:

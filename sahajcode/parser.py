@@ -7,7 +7,8 @@ Converts token stream into an Abstract Syntax Tree.
 from typing import List, Optional, Tuple
 from .ast_nodes import (
     NodeType, Program, VarDecl, Assignment, Print, Input,
-    If, While, For, BinaryOp, UnaryOp, Number, String, Identifier, Comment, ASTNode
+    If, While, For, BinaryOp, UnaryOp, Number, String, Identifier, Comment, ASTNode,
+    FunctionDef, Return, Call, ArrayLiteral, IndexExpr
 )
 from .lexer import Token, TokenType
 from .error_reporter import ERROR_MESSAGES
@@ -62,7 +63,17 @@ class Parser:
             return self._parse_while()
         elif tok.type == TokenType.GUMA:
             return self._parse_for()
+        elif tok.type == TokenType.GARU:
+            return self._parse_function_def()
+        elif tok.type == TokenType.FIRTA:
+            return self._parse_return()
         elif tok.type == TokenType.IDENTIFIER:
+            # Could be: assignment (x = ...), array assignment (x[i] = ...),
+            # or a call statement (foo(...)).
+            if self._peek().type == TokenType.LPAREN:
+                return self._parse_call_stmt()
+            elif self._peek().type == TokenType.LBRACKET:
+                return self._parse_assignment()
             return self._parse_assignment()
         elif tok.type == TokenType.COMMENT:
             comment = Comment(text=tok.value, line=tok.line, node_type=NodeType.COMMENT)
@@ -81,6 +92,12 @@ class Parser:
         # Skip it and return True to keep parsing
         self._advance()
         return None, True
+    
+    def _peek(self) -> Token:
+        """Look at the next token without advancing."""
+        if self.pos + 1 < len(self.tokens):
+            return self.tokens[self.pos + 1]
+        return self.tokens[-1]
     
     def _parse_var_decl(self) -> Tuple[Optional[ASTNode], bool]:
         """Parse: rakha IDENTIFIER = expression NEWLINE"""
@@ -253,13 +270,113 @@ class Parser:
         
         return For(var=var, start=start, end=end, body=body, line=guma_tok.line, node_type=NodeType.FOR), True
     
+    def _parse_function_def(self) -> Tuple[Optional[ASTNode], bool]:
+        """Parse: garu name ( p1, p2, ... ) body... antya"""
+        garu_tok = self._current()
+        self._consume(TokenType.GARU)
+        
+        name_tok = self._current()
+        if name_tok.type != TokenType.IDENTIFIER:
+            self._error("'garu' लाई फंक्शनको नाम चाहिन्छ", "'garu name (params)' ढाँचा प्रयोग गर्नुहोस्", name_tok)
+            return None, False
+        name = name_tok.value
+        self._advance()
+        
+        if not self._consume(TokenType.LPAREN):
+            self._error("'garu' पछि '(' आवश्यक छ", "Expected '(' after function name", self._prev())
+            return None, False
+        
+        params: List[str] = []
+        if self._current().type == TokenType.IDENTIFIER:
+            params.append(self._current().value)
+            self._advance()
+            while self._consume(TokenType.COMMA):
+                p = self._current()
+                if p.type != TokenType.IDENTIFIER:
+                    self._error("प्यारामिटर नाम आवश्यक छ", "Expected parameter name", p)
+                    return None, False
+                params.append(p.value)
+                self._advance()
+        
+        if not self._consume(TokenType.RPAREN):
+            self._error("'(' लाई ')' ले बन्द गर्नुहोस्", "Expected ')' to close parameters", self._prev())
+            return None, False
+        
+        # Optional newline then body until antya
+        self._consume_newline()
+        
+        body, _ = self._parse_block(TokenType.ANTYA)
+        
+        if self._current().type != TokenType.ANTYA:
+            cat = ERROR_MESSAGES['E004']
+            self._error(cat['nepali'].format(keyword='garu'),
+                       cat['english'].format(keyword='garu'), garu_tok,
+                       cat['suggestion'].format(keyword='garu'))
+            return None, False
+        self._consume(TokenType.ANTYA)
+        self._consume_newline()
+        
+        return FunctionDef(name=name, params=params, body=body, line=garu_tok.line, node_type=NodeType.FUNCTION_DEF), True
+    
+    def _parse_return(self) -> Tuple[Optional[ASTNode], bool]:
+        """Parse: firta expression NEWLINE"""
+        firta_tok = self._current()
+        self._consume(TokenType.FIRTA)
+        
+        expr, ok = self._parse_expression()
+        if not ok:
+            return None, False
+        self._consume_newline()
+        return Return(expr=expr, line=firta_tok.line, node_type=NodeType.RETURN), True
+    
+    def _parse_call_stmt(self) -> Tuple[Optional[ASTNode], bool]:
+        """Parse a function call used as a statement: name(args)"""
+        call, ok = self._parse_call_expr()
+        if not ok:
+            return None, False
+        self._consume_newline()
+        return call, True
+    
+    def _parse_call_expr(self) -> Tuple[Optional[ASTNode], bool]:
+        """Parse: IDENTIFIER ( arg, arg, ... )"""
+        name_tok = self._current()
+        name = name_tok.value
+        self._advance()
+        if not self._consume(TokenType.LPAREN):
+            return None, False
+        args: List[ASTNode] = []
+        if self._current().type not in (TokenType.RPAREN, TokenType.NEWLINE):
+            arg, ok = self._parse_expression()
+            if ok and arg is not None:
+                args.append(arg)
+            while self._consume(TokenType.COMMA):
+                arg, ok = self._parse_expression()
+                if ok and arg is not None:
+                    args.append(arg)
+        if not self._consume(TokenType.RPAREN):
+            self._error("'(' लाई ')' ले बन्द गर्नुहोस्", "Expected ')' to close call arguments", self._prev())
+            return None, False
+        return Call(name=name, args=args, line=name_tok.line, node_type=NodeType.CALL), True
+
     def _parse_assignment(self) -> Tuple[Optional[ASTNode], bool]:
-        """Parse: IDENTIFIER = expression NEWLINE"""
+        """Parse: IDENTIFIER = expression NEWLINE  (or  IDENTIFIER[expr] = expr)"""
         name_tok = self._current()
         if name_tok.type != TokenType.IDENTIFIER:
             return None, False
         name = name_tok.value
         self._advance()
+        
+        # Array element assignment: name[expr] = expr
+        target = None
+        if self._current().type == TokenType.LBRACKET:
+            self._advance()
+            idx, ok = self._parse_expression()
+            if not ok:
+                return None, False
+            if not self._consume(TokenType.RBRACKET):
+                self._error("अरे (`]`) आवश्यक छ", "Expected ']' to close array index", name_tok)
+                return None, False
+            target = IndexExpr(array=name, index=idx, line=name_tok.line, node_type=NodeType.INDEX)
         
         if self._current().type != TokenType.EQUAL:
             return None, False
@@ -271,6 +388,8 @@ class Parser:
         
         self._consume_newline()
         
+        if target is not None:
+            return Assignment(target=target, value=expr, line=name_tok.line, node_type=NodeType.ASSIGNMENT), True
         return Assignment(name=name, value=expr, line=name_tok.line, node_type=NodeType.ASSIGNMENT), True
     
     # Expression parsing with precedence
@@ -337,7 +456,7 @@ class Parser:
         return self._parse_primary()
     
     def _parse_primary(self) -> Tuple[Optional[ASTNode], bool]:
-        """Parse primary: NUMBER | STRING | IDENTIFIER"""
+        """Parse primary: NUMBER | STRING | IDENTIFIER | call | array | index"""
         tok = self._current()
         
         if self._match_type([TokenType.NUMBER]):
@@ -352,10 +471,46 @@ class Parser:
         if self._match_type([TokenType.GALAT]):
             return Number(value=0, line=tok.line, node_type=NodeType.NUMBER), True
         
-        if self._match_type([TokenType.IDENTIFIER]):
-            return Identifier(name=self._prev().value, line=tok.line, node_type=NodeType.IDENTIFIER), True
+        if self._match_type([TokenType.LBRACKET]):
+            return self._parse_array_literal()
+        
+        if self._current().type == TokenType.IDENTIFIER:
+            name = self._current().value
+            # Function call?  name ( args )
+            if self._peek().type == TokenType.LPAREN:
+                return self._parse_call_expr()
+            # Array indexing?  name [ expr ]
+            if self._peek().type == TokenType.LBRACKET:
+                self._advance()  # consume name
+                self._advance()  # consume [
+                idx, ok = self._parse_expression()
+                if not ok:
+                    return None, False
+                if not self._consume(TokenType.RBRACKET):
+                    self._error("अरे (`]`) आवश्यक छ", "Expected ']' to close array index", tok)
+                    return None, False
+                return IndexExpr(array=name, index=idx, line=tok.line, node_type=NodeType.INDEX), True
+            self._advance()
+            return Identifier(name=name, line=tok.line, node_type=NodeType.IDENTIFIER), True
         
         return None, False
+    
+    def _parse_array_literal(self) -> Tuple[Optional[ASTNode], bool]:
+        """Parse: [ e1, e2, ... ]"""
+        open_tok = self._current()  # LBRACKET already consumed
+        elements: List[ASTNode] = []
+        if self._current().type != TokenType.RBRACKET:
+            el, ok = self._parse_expression()
+            if ok and el is not None:
+                elements.append(el)
+            while self._consume(TokenType.COMMA):
+                el, ok = self._parse_expression()
+                if ok and el is not None:
+                    elements.append(el)
+        if not self._consume(TokenType.RBRACKET):
+            self._error("अरे (`]`) आवश्यक छ", "Expected ']' to close array", open_tok)
+            return None, False
+        return ArrayLiteral(elements=elements, size=len(elements), line=open_tok.line, node_type=NodeType.ARRAY_LITERAL), True
     
     def _parse_block(self, terminator: TokenType) -> Tuple[List[ASTNode], bool]:
         """Parse statements until terminator (antya)."""

@@ -24,6 +24,8 @@ class TokenType(Enum):
     ANTYA = auto()      # antya (end)
     THIK = auto()       # thik (true)
     GALAT = auto()      # galat (false)
+    GARU = auto()       # garu (do/make) - function definition
+    FIRTA = auto()      # firta (return) - return from function
     
     # Literals and identifiers
     IDENTIFIER = auto()
@@ -45,6 +47,11 @@ class TokenType(Enum):
     EQUAL = auto()      # =
     
     # Structure
+    LPAREN = auto()     # (
+    RPAREN = auto()     # )
+    COMMA = auto()      # ,
+    LBRACKET = auto()   # [
+    RBRACKET = auto()   # ]
     COMMENT = auto()
     NEWLINE = auto()
     EOF = auto()
@@ -64,7 +71,7 @@ class Token:
         return f"Token({self.type.name}, {self.value!r}, Line {self.line})"
 
 
-# All 13 reserved keywords (English transliteration)
+# All reserved keywords (English transliteration)
 KEYWORDS = {
     'rakha': TokenType.RAKHA,
     'bhana': TokenType.BHANA,
@@ -79,6 +86,8 @@ KEYWORDS = {
     'antya': TokenType.ANTYA,
     'thik': TokenType.THIK,
     'galat': TokenType.GALAT,
+    'garu': TokenType.GARU,
+    'firta': TokenType.FIRTA,
 }
 
 # Nepali script keywords (Unicode Devanagari - U+0900 to U+097F)
@@ -96,6 +105,8 @@ NEPALI_KEYWORDS = {
     'अन्त्य': TokenType.ANTYA,
     'ठीक': TokenType.THIK,
     'गलत': TokenType.GALAT,
+    'गर्नु': TokenType.GARU,
+    'फर्क': TokenType.FIRTA,
 }
 
 
@@ -182,6 +193,20 @@ class Lexer:
             
             if char in single_ops:
                 self.tokens.append(Token(single_ops[char], char, self.line, self.column))
+                self.pos += 1
+                self.column += 1
+                continue
+            
+            # Structure tokens: ( ) , [ ]
+            struct_ops = {
+                '(': TokenType.LPAREN,
+                ')': TokenType.RPAREN,
+                ',': TokenType.COMMA,
+                '[': TokenType.LBRACKET,
+                ']': TokenType.RBRACKET,
+            }
+            if char in struct_ops:
+                self.tokens.append(Token(struct_ops[char], char, self.line, self.column))
                 self.pos += 1
                 self.column += 1
                 continue
